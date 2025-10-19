@@ -1,0 +1,64 @@
+# この AWS SAM テンプレートは、関数の設定から生成されました。関数に 1 つ以上のトリガーがある場合は、これらのトリガーに関連付けられている AWS
+# リソースがこのテンプレートで完全に指定されておらず、プレースホルダ値も含まれていないことに注意してください。AWS Infrastructure
+# Composer またはお気に入りの IDE でこのテンプレートを開き、他の AWS リソースでサーバーレスアプリケーションを指定するように変更します。
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: An AWS Serverless Application Model template describing your function.
+Resources:
+  lambdacheckstatus:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Description: >-
+        Instagram投稿用の動画がコンテナとしてSNSにアップされている状態をconvert_jobsテーブルに記録する。ステートマシンからの呼び出し。ddb_helper関数をレイヤで持つ
+      MemorySize: 512
+      Timeout: 30
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+      Layers:
+        - !Ref Layer1
+      PackageType: Zip
+      Policies:
+        - Statement:
+            - Sid: DdbAccessForConvertJob
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DescribeTable
+              Resource: arn:aws:dynamodb:ap-northeast-1:071360906030:table/convert_jobs
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+              Resource: arn:aws:logs:ap-northeast-1:071360906030:*
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - >-
+                  arn:aws:logs:ap-northeast-1:071360906030:log-group:/aws/lambda/lambda_check_status:*
+      RecursiveLoop: Terminate
+      SnapStart:
+        ApplyOn: None
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+  # This resource represents your Layer with name ddb-helpers. To download the
+# content of your Layer, go to
+# 
+# aws.amazon.com/go/view?arn=arn%3Aaws%3Alambda%3Aap-northeast-1%3A071360906030%3Alayer%3Addb-helpers%3A2&source=lambda
+  Layer1:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: ./ddb-helpers
+      LayerName: ddb-helpers
+      CompatibleRuntimes:
+        - python3.11

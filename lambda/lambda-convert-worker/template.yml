@@ -1,0 +1,125 @@
+# この AWS SAM テンプレートは、関数の設定から生成されました。関数に 1 つ以上のトリガーがある場合は、これらのトリガーに関連付けられている AWS
+# リソースがこのテンプレートで完全に指定されておらず、プレースホルダ値も含まれていないことに注意してください。AWS Infrastructure
+# Composer またはお気に入りの IDE でこのテンプレートを開き、他の AWS リソースでサーバーレスアプリケーションを指定するように変更します。
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: An AWS Serverless Application Model template describing your function.
+Resources:
+  lambdaconvertworker:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Description: >-
+        VideoファイルをInstagramに投稿できる形式に変換する関数。ffmpegで変換。S3のitmar-video-upload-bucketへのアップロードをトリガーにして起動
+      MemorySize: 1536
+      Timeout: 600
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          JOBS_TABLE: video_jobs_by_src
+          UPLOAD_BUCKET: itmar-video-upload-bucket
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+      Layers:
+        - !Ref Layer1
+      PackageType: Zip
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+                - s3:GetObjectTagging
+              Resource:
+                - !GetAtt Bucket1.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+                - s3:GetObjectTagging
+              Resource:
+                - !GetAtt Bucket1.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource: >-
+                arn:aws:dynamodb:ap-northeast-1:071360906030:table/video_jobs_by_src
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+              Resource: arn:aws:logs:ap-northeast-1:071360906030:*
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - >-
+                  arn:aws:logs:ap-northeast-1:071360906030:log-group:/aws/lambda/lambda-convert-worker:*
+      RecursiveLoop: Terminate
+      SnapStart:
+        ApplyOn: None
+      Events:
+        BucketEvent1:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: Bucket1
+            Events:
+              - s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: in/
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+  Bucket1:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  BucketPolicy1:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: Bucket1
+      PolicyDocument:
+        Statement:
+          - Action: s3:*
+            Effect: Deny
+            Principal: '*'
+            Resource:
+              - arn:aws:s3:::Bucket1/*
+              - arn:aws:s3:::Bucket1
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  # This resource represents your Layer with name ffmpeg-amd64. To download the
+# content of your Layer, go to
+# 
+# aws.amazon.com/go/view?arn=arn%3Aaws%3Alambda%3Aap-northeast-1%3A071360906030%3Alayer%3Affmpeg-amd64%3A1&source=lambda
+  Layer1:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: ./ffmpeg-amd64
+      LayerName: ffmpeg-amd64
+      CompatibleRuntimes:
+        - python3.11

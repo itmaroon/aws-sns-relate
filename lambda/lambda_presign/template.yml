@@ -1,0 +1,101 @@
+# この AWS SAM テンプレートは、関数の設定から生成されました。関数に 1 つ以上のトリガーがある場合は、これらのトリガーに関連付けられている AWS
+# リソースがこのテンプレートで完全に指定されておらず、プレースホルダ値も含まれていないことに注意してください。AWS Infrastructure
+# Composer またはお気に入りの IDE でこのテンプレートを開き、他の AWS リソースでサーバーレスアプリケーションを指定するように変更します。
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: An AWS Serverless Application Model template describing your function.
+Resources:
+  lambdapresign:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Description: >-
+        Instagram用のメディアファイルをS3におくためのPUT URLの生成およびGET
+        URLの生成を行う。また、DynamoDBのテーブルを作成する
+      MemorySize: 128
+      Timeout: 3
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          IN_BUCKET: itmar-video-upload-bucket
+          JOBS_TABLE: convert_jobs
+          KMS_KEY_ID: alias/ig-token-key
+          FB_TOKEN_PEPPER: k3Q9m8r2SxZp1N0u
+          IN_PREFIX: in/
+          REGION: ap-northeast-1
+          DEFAULT_EXPIRES: '900'
+          CLIENTS_TABLE: convert_clients
+          OUT_BUCKET: itmar-video-converted-bucket
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+      PackageType: Zip
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:PutObjectTagging
+              Resource: arn:aws:s3:::itmar-video-upload-bucket/*
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:PutObjectTagging
+              Resource: arn:aws:s3:::itmar-video-converted-bucket/*
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+            - Sid: DdbAccessForConvertClients
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DescribeTable
+              Resource: >-
+                arn:aws:dynamodb:ap-northeast-1:071360906030:table/convert_clients
+            - Sid: DdbAccessForConvertJob
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DescribeTable
+              Resource: arn:aws:dynamodb:ap-northeast-1:071360906030:table/convert_jobs
+            - Effect: Allow
+              Action:
+                - kms:Encrypt
+              Resource: >-
+                arn:aws:kms:ap-northeast-1:071360906030:key/04933e03-887d-4de3-9083-e78d8ea23504
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+              Resource: arn:aws:logs:ap-northeast-1:071360906030:*
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - >-
+                  arn:aws:logs:ap-northeast-1:071360906030:log-group:/aws/lambda/lambda_presign:*
+      RecursiveLoop: Terminate
+      SnapStart:
+        ApplyOn: None
+      Events:
+        Api1:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: ANY
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
