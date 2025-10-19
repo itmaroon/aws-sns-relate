@@ -71,7 +71,7 @@ Resources:
                 - Name: BuildOutput
               Configuration:
                 ActionMode: CREATE_UPDATE
-                StackName: sns-relate-aws
+                StackName: sns-relate-stack
                 Capabilities: CAPABILITY_NAMED_IAM
                 TemplatePath: BuildOutput::template.master.yaml
                 Region: ap-northeast-3   # ← 大阪リージョンにデプロイ！
