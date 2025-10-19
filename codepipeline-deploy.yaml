@@ -42,8 +42,8 @@ Resources:
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
-                ConnectionArn: arn:aws:codestar-connections:ap-northeast-1:071360906030:connection/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-                FullRepositoryId: itmaroon/sns-relate-aws
+                ConnectionArn: arn:aws:codeconnections:ap-northeast-1:071360906030:connection/5ef11dd3-8bcc-42b9-b8bb-f38fb21da91f
+                FullRepositoryId: itmaroon/aws-sns-relate
                 BranchName: main
         - Name: Build
           Actions:
