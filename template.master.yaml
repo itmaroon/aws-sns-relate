@@ -22,6 +22,18 @@ Resources:
         - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: SNSRelatePipelineExtraS3
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketVersioning
+                  - s3:GetBucketVersioning
+                  - s3:CreateBucket
+                  - s3:PutBucketAcl
+                Resource: !Sub arn:aws:s3:::sns-relate-pipeline-artifacts-${AWS::Region}-${AWS::AccountId}
 
   SNSRelateArtifactBucket:
     Type: AWS::S3::Bucket
