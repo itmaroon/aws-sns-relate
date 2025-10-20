@@ -17,10 +17,17 @@ Resources:
                 - codepipeline.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodePipelineServiceRole
+        - arn:aws:iam::aws:policy/AWSCodePipelineFullAccess
         - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
     Path: "/"
+
+  SNSRelateArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "sns-relate-pipeline-artifacts-${AWS::Region}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
 
   SNSRelatePipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -29,7 +36,7 @@ Resources:
       Name: sns-relate-deploy-pipeline
       ArtifactStore:
         Type: S3
-        Location: !Sub "sns-relate-pipeline-artifacts-${AWS::Region}-${AWS::AccountId}"
+        Location: !Ref SNSRelateArtifactBucket
       Stages:
         - Name: Source
           Actions:
@@ -71,19 +78,12 @@ Resources:
                 - Name: BuildOutput
               Configuration:
                 ActionMode: CREATE_UPDATE
-                StackName: sns-relate-stack
+                StackName: sns-relate-aws
                 Capabilities: CAPABILITY_NAMED_IAM
                 TemplatePath: BuildOutput::template.master.yaml
-                Region: ap-northeast-3   # ← 大阪リージョンにデプロイ！
+                Region: ap-northeast-3
                 RoleArn: !GetAtt SNSRelatePipelineRole.Arn
       RestartExecutionOnUpdate: true
-
-  SNSRelateArtifactBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "sns-relate-pipeline-artifacts-${AWS::Region}-${AWS::AccountId}"
-      VersioningConfiguration:
-        Status: Enabled
 
 Outputs:
   PipelineName:
