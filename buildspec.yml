@@ -1,0 +1,18 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+  build:
+    commands:
+      - echo "Building sns-relate-aws..."
+      - echo "Packaging Lambda functions if needed..."
+      # ここで lambda/*.py を zip 化するなどの処理を追加できます
+      - echo "Copying CloudFormation template..."
+      - cp template.master.yaml output/template.master.yaml
+
+artifacts:
+  files:
+    - template.master.yaml
+  base-directory: output
