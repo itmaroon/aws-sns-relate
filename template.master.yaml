@@ -79,7 +79,7 @@ Resources:
                 ActionMode: CREATE_UPDATE
                 StackName: sns-relate-pipeline
                 Capabilities: CAPABILITY_NAMED_IAM
-                TemplatePath: BuildOutput::template.master.yaml
+                TemplateFile: BuildOutput::template.master.yaml
                 Region: ap-northeast-3
                 RoleArn: !GetAtt SNSRelatePipelineRole.Arn
       RestartExecutionOnUpdate: true
