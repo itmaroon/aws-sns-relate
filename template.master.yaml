@@ -96,6 +96,7 @@ Resources:
                 TemplateFile: BuildOutput::template.master.yaml
                 Region: ap-northeast-3
                 RoleArn: !GetAtt SNSRelatePipelineRole.Arn
+                CloudFormationRoleArn: !GetAtt SNSRelatePipelineRole.Arn
       RestartExecutionOnUpdate: true
 
 Outputs:
