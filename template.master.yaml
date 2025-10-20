@@ -20,7 +20,6 @@ Resources:
         - arn:aws:iam::aws:policy/AWSCodePipelineFullAccess
         - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
-    Path: "/"
 
   SNSRelateArtifactBucket:
     Type: AWS::S3::Bucket
