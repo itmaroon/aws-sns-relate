@@ -1,0 +1,564 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Re-deploy to us-east-1 from exported artifacts (ZIP mode / no build)
+
+Parameters:
+  EnvName:             { Type: String, AllowedValues: [dev, prod], Default: prod }
+  InBucketName:        { Type: String, Description: 'S3 IN (unique global name)' }
+  OutBucketName:       { Type: String, Description: 'S3 OUT (unique global name)' }
+  FfmpegLayerArn:      { Type: String, Default: arn:aws:lambda:us-east-1:071360906030:layer:ffmpeg-amd64:4 }
+  DdbHelpersLayerArn:  { Type: String, Default: arn:aws:lambda:us-east-1:071360906030:layer:ddb-helpers:3 }
+
+Globals:
+  Function:
+    Runtime: python3.11
+    MemorySize: 256
+    Timeout: 10
+    Tracing: Active
+    Environment:
+      Variables: { APP_ENV: !Ref EnvName }
+
+Conditions:
+  HasFfmpeg:      !Not [ !Equals [ !Ref FfmpegLayerArn, "" ] ]
+  HasDdbHelpers:  !Not [ !Equals [ !Ref DdbHelpersLayerArn, "" ] ]
+
+Resources:
+  InBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+          BucketName: !Ref InBucketName
+          OwnershipControls: 
+              Rules: 
+                - ObjectOwnership: BucketOwnerEnforced
+          PublicAccessBlockConfiguration: 
+              BlockPublicAcls: true
+              BlockPublicPolicy: true
+              IgnorePublicAcls: true
+              RestrictPublicBuckets: true
+          
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+
+  OutBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Ref OutBucketName
+        OwnershipControls: 
+            Rules: 
+              - ObjectOwnership: "BucketOwnerEnforced"
+        PublicAccessBlockConfiguration: 
+            BlockPublicAcls: true
+            BlockPublicPolicy: true
+            IgnorePublicAcls: true
+            RestrictPublicBuckets: true
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['GET','POST','DELETE','PUT','OPTIONS']
+
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: convert_jobs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: job_id,    AttributeType: S }
+        - { AttributeName: site_url,  AttributeType: S }
+        - { AttributeName: updated_at,AttributeType: N }
+        - { AttributeName: wp_id,     AttributeType: S }
+      KeySchema:
+        - { AttributeName: job_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: wp_id-updated_at-index
+          KeySchema:
+            - { AttributeName: wp_id, KeyType: HASH }
+            - { AttributeName: updated_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: site_url-updated_at-index
+          KeySchema:
+            - { AttributeName: site_url, KeyType: HASH }
+            - { AttributeName: updated_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  # --- Step Functions: IG ---
+  IgStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: IgStateMachine
+      Type: STANDARD
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/StepFunctions-IgStateMachine-role-3evfy5jyg
+      DefinitionUri: ./export-ARTIFACTS/stepfunctions/IgStateMachine.asl.json
+      DefinitionSubstitutions:
+        LAMBDA_GET_JOB_ARN:          !GetAtt FnGetJob.Arn
+        LAMBDA_CREATE_CONTAINER_ARN: !GetAtt FnCreateContainer.Arn
+        LAMBDA_CHECK_STATUS_ARN:     !GetAtt FnCheckStatus.Arn
+        LAMBDA_CLEANUP_ARN:          !GetAtt FnCleanup.Arn
+        LAMBDA_IG_PUBLISH_ARN:       !GetAtt FnIgPublish.Arn
+
+  # --- Step Functions: X ---
+  XStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: xStateMachine
+      Type: STANDARD
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/StepFunctions-xStateMachine-role-ryxkhm8ed
+      DefinitionUri: ./export-ARTIFACTS/stepfunctions/xStateMachine.asl.json
+      DefinitionSubstitutions:
+        LAMBDA_GET_JOB_ARN: !GetAtt FnGetJob.Arn
+        LAMBDA_X_INIT_ARN:  !GetAtt FnXInitialize.Arn
+        LAMBDA_X_APPEND_ARN: !GetAtt FnXAppend.Arn
+        LAMBDA_X_FIN_ARN: !GetAtt FnXFinalize.Arn
+        LAMBDA_POLL_ARN: !GetAtt FnPollMediaStatus.Arn
+        LAMBDA_POSTX_ARN: !GetAtt FnPostX.Arn
+        LAMBDA_CLEANUP_ARN: !GetAtt FnCleanup.Arn
+
+  # --- Lambda ---
+  FnConvertWorker:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-convert-worker
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda-convert-worker.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 1536
+      Timeout: 600
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda-convert-worker-role-qdznmpan
+      Layers:
+        - !If [HasFfmpeg, !Ref FfmpegLayerArn, !Ref "AWS::NoValue"]
+      Environment:
+        Variables:
+          JOBS_TABLE: video_jobs_by_src
+          UPLOAD_BUCKET: !Ref InBucketName
+      Events:
+        FromS3:
+          Type: S3
+          Properties:
+            Bucket: !Ref InBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: in/
+                  - Name: suffix
+                    Value: .mp4 
+
+  FnCreateContainer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_create_container
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_create_container.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 512
+      Timeout: 30
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_create_container-role-tyilgs9v
+      Layers:
+        - !If [HasDdbHelpers, !Ref DdbHelpersLayerArn, !Ref "AWS::NoValue"]
+
+  FnGetJob:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_get_job
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_get_job.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 160
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_get_job-role-v14vtw1c
+      Environment:
+        Variables:
+          JOBS_TABLE: !Ref JobsTable
+
+  FnPostX:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_post_x
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_post_x.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_post_x-role-no48w33z
+      Layers:
+        - !If [HasDdbHelpers, !Ref DdbHelpersLayerArn, !Ref "AWS::NoValue"]
+
+  FnXInitialize:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_x_initialize
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_x_initialize.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_initialize-role-gq4o29ov
+
+  FnXFinalize:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_x_finalize
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_x_finalize.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_finalize-role-sncv0l5h
+
+  FnDeleteJob:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_delete_job
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_delete_job.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Events:
+        DeleteJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /jobs/{job_id}
+            Method: DELETE
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_delete_job-role-6g995amd
+
+  FnGetJobStatus:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_get_job_status
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_get_job_status.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Environment:
+        Variables:
+          REGION: !Ref 'AWS::Region'
+      Events:
+        GetJobs:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /jobs
+            Method: GET
+      # Role name was dynamic in Former2; fix to concrete role if needed:
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_get_job_status-role-atd5rkx7
+
+  FnCleanup:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_cleanup
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_cleanup.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_cleanup-role-pvgibg6l
+      Events:
+        CleanUp:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /upload
+            Method: DELETE
+      Environment:
+        Variables:
+          IN_BUCKET:  !Ref InBucketName
+          OUT_BUCKET: !Ref OutBucketName
+
+  FnConvertNotifier:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_convert_notifier
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_convert_notifier.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_convert_notifier-role-de3o2da7
+      Environment:
+        Variables:
+          GET_EXPIRES: "3600"
+          UPLOAD_PREFIX: "converted/"
+          SF_IG_POST_ARN: !Ref IgStateMachine
+      Events:
+        FromConverted:
+          Type: S3
+          Properties:
+            Bucket: !Ref OutBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: converted/
+                  - Name: suffix
+                    Value: .mp4
+
+  FnPollMediaStatus:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_poll_media_status
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_poll_media_status.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_poll_media_status-role-3o2e1pe0
+
+  FnCheckStatus:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_check_status
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_check_status.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 512
+      Timeout: 30
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_check_status-role-6ug98ls3
+      Layers:
+        - !If [HasDdbHelpers, !Ref DdbHelpersLayerArn, !Ref "AWS::NoValue"]
+
+  FnPresign:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_presign
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_presign.zip
+      Handler: lambda_presign.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_presign-role-fesg8sew
+      Events:
+        Presign:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /presign
+            Method: POST
+      Environment:
+        Variables:
+          CLIENTS_TABLE: convert_clients
+          JOBS_TABLE: !Ref JobsTable
+          KMS_KEY_ID: alias/ig-token-key
+          DEFAULT_EXPIRES: "900"
+          IN_BUCKET:  !Ref InBucketName
+          OUT_BUCKET: !Ref OutBucketName
+          FB_TOKEN_PEPPER: k3Q9m8r2SxZp1N0u
+          IN_PREFIX: in/
+          REGION: !Ref 'AWS::Region'
+
+  FnDdbHelpers:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ddb_helpers
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/ddb_helpers.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/ddb_helpers-role-anfqait1
+
+  FnStart:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_start
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_start.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_start-role-o5k7gdn6
+      Events:
+        StartUpload:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /x/start_upload
+            Method: POST
+      Environment:
+        Variables:
+          KMS_KEY_ID: alias/ig-token-key
+          STATE_MACHINE_ARN: !Ref XStateMachine
+          REGION: !Ref 'AWS::Region'
+
+  FnTokenRegister:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_token_register
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_token_register.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Timeout: 3
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_token_register-role-7bbwn2hy
+
+  FnIgPublish:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_ig_publish
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_ig_publish.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 512
+      Timeout: 30
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_ig_publish-role-2oij14o7
+      Layers:
+        - !If [HasDdbHelpers, !Ref DdbHelpersLayerArn, !Ref "AWS::NoValue"]
+
+  FnXAppend:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda_x_append
+      PackageType: Zip
+      CodeUri: ./export-ARTIFACTS/lambda/lambda_x_append.zip
+      Handler: lambda_function.lambda_handler
+      MemorySize: 512
+      Timeout: 120
+      EphemeralStorage: { Size: 512 }
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_append-role-ck86pedc
+
+  KmsIgTokenKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Enabled: true
+      Description: "Key for IG token encryption (recreated from dev)"
+      KeyUsage: ENCRYPT_DECRYPT
+      KeySpec: SYMMETRIC_DEFAULT
+      MultiRegion: false
+      KeyPolicy: !Sub |
+        {
+          "Version" : "2012-10-17",
+          "Id" : "key-consolepolicy-3",
+          "Statement" : [
+            {
+              "Sid" : "Enable IAM User Permissions",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : "arn:aws:iam::${AWS::AccountId}:root"
+              },
+              "Action" : "kms:*",
+              "Resource" : "*"
+            },
+            {
+              "Sid" : "Allow access for Key Administrators",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : [
+                  "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange",
+                  "arn:aws:iam::${AWS::AccountId}:user/itmaroon"
+                ]
+              },
+              "Action" : [
+                "kms:Create*",
+                "kms:Describe*",
+                "kms:Enable*",
+                "kms:List*",
+                "kms:Put*",
+                "kms:Update*",
+                "kms:Revoke*",
+                "kms:Disable*",
+                "kms:Get*",
+                "kms:Delete*",
+                "kms:TagResource",
+                "kms:UntagResource",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion",
+                "kms:RotateKeyOnDemand"
+              ],
+              "Resource" : "*"
+            },
+            {
+              "Sid" : "Allow use of the key",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : [
+                  "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange",
+                  "arn:aws:iam::${AWS::AccountId}:user/itmaroon"
+                ]
+              },
+              "Action" : [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey"
+              ],
+              "Resource" : "*"
+            },
+            {
+              "Sid" : "Allow attachment of persistent resources",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : [
+                  "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange",
+                  "arn:aws:iam::${AWS::AccountId}:user/itmaroon"
+                ]
+              },
+              "Action" : [
+                "kms:CreateGrant",
+                "kms:ListGrants",
+                "kms:RevokeGrant"
+              ],
+              "Resource" : "*",
+              "Condition" : {
+                "Bool" : {
+                  "kms:GrantIsForAWSResource" : "true"
+                }
+              }
+            },
+            {
+              "Sid" : "Allow Use of the Key from Lambda presign role",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_presign-role-fesg8sew"
+              },
+              "Action" : "kms:Encrypt",
+              "Resource" : "*"
+            },
+            {
+              "Sid" : "AllowDecryptFromLambdaGetJob",
+              "Effect" : "Allow",
+              "Principal" : {
+                "AWS" : "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_get_job-role-v14vtw1c"
+              },
+              "Action" : [
+                "kms:Decrypt",
+                "kms:DescribeKey"
+              ],
+              "Resource" : "*"
+            }
+          ]
+        }
+
+  KmsIgTokenAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/ig-token-key
+      TargetKeyId: !Ref KmsIgTokenKey

@@ -1,0 +1,151 @@
+{
+    "Comment": "Post to X workflow with per-media upload sequence",
+    "StartAt": "GetJobX",
+    "States": {
+        "GetJobX": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_GET_JOB_ARN}",
+            "Next": "CheckMedia"
+        },
+        "CheckMedia": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.media_urls",
+                    "IsPresent": false,
+                    "Next": "PostToX"
+                },
+                {
+                    "Variable": "$.media_urls",
+                    "StringEquals": "[]",
+                    "Next": "PostToX"
+                }
+            ],
+            "Default": "UploadEachMedia"
+        },
+        "UploadEachMedia": {
+            "Type": "Map",
+            "ItemsPath": "$.media_urls",
+            "Parameters": {
+                "job_id.$": "$.job_id",
+                "access_token.$": "$.access_token",
+                "text.$": "$.text",
+                "caption.$": "$.caption",
+                "ig_user_id.$": "$.ig_user_id",
+                "site_url.$": "$.site_url",
+                "media_url.$": "$$.Map.Item.Value"
+            },
+            "Iterator": {
+                "StartAt": "InitializeMedia",
+                "States": {
+                    "InitializeMedia": {
+                        "Type": "Task",
+                        "Resource": "${LAMBDA_X_INIT_ARN}",
+                        "Next": "AppendMedia"
+                    },
+                    "AppendMedia": {
+                        "Type": "Task",
+                        "Resource": "${LAMBDA_X_APPEND_ARN}",
+                        "Next": "FinalizeMedia"
+                    },
+                    "FinalizeMedia": {
+                        "Type": "Task",
+                        "Resource": "${LAMBDA_X_FIN_ARN}",
+                        "Next": "CheckIfProcessing"
+                    },
+                    "CheckIfProcessing": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "succeeded",
+                                "Next": "DoneOneMedia"
+                            },
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "processing",
+                                "Next": "WaitBeforePoll"
+                            }
+                        ],
+                        "Default": "DoneOneMedia"
+                    },
+                    "WaitBeforePoll": {
+                        "Type": "Wait",
+                        "SecondsPath": "$.check_after",
+                        "Next": "PollMediaStatus"
+                    },
+                    "PollMediaStatus": {
+                        "Type": "Task",
+                        "Resource": "${LAMBDA_POLL_ARN}",
+                        "Next": "PollCheck"
+                    },
+                    "PollCheck": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "succeeded",
+                                "Next": "DoneOneMedia"
+                            },
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "in_progress",
+                                "Next": "WaitBeforePoll"
+                            }
+                        ],
+                        "Default": "DoneOneMedia"
+                    },
+                    "DoneOneMedia": {
+                        "Type": "Pass",
+                        "ResultPath": "$.media_result",
+                        "End": true
+                    }
+                }
+            },
+            "ResultSelector": {
+                "media_ids.$": "$[*].media_id"
+            },
+            "ResultPath": "$.media_results",
+            "Next": "PreparePostToX"
+        },
+        "PreparePostToX": {
+            "Type": "Pass",
+            "Parameters": {
+                "job_id.$": "$.job_id",
+                "access_token.$": "$.access_token",
+                "text.$": "$.text",
+                "media_ids.$": "$.media_results.media_ids"
+            },
+            "Next": "PostToX"
+        },
+        "PostToX": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_POSTX_ARN}",
+            "Next": "Cleanup"
+        },
+        "Cleanup": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_CLEANUP_ARN}",
+            "ResultPath": "$.cleanup",
+            "Next": "AfterCleanup"
+        },
+        "AfterCleanup": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.failure",
+                    "IsPresent": true,
+                    "Next": "FailState"
+                }
+            ],
+            "Default": "SuccessState"
+        },
+        "FailState": {
+            "Type": "Fail",
+            "Cause": "Creation failed or unknown status"
+        },
+        "SuccessState": {
+            "Type": "Succeed"
+        }
+    }
+}

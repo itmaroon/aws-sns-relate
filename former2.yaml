@@ -1,0 +1,936 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    Generator: "former2"
+Description: ""
+Resources:
+    LambdaFunction:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "VideoファイルをInstagramに投稿できる形式に変換する関数。ffmpegで変換。S3の${S3Bucket2}へのアップロードをトリガーにして起動"
+            Environment: 
+                Variables: 
+                    JOBS_TABLE: "video_jobs_by_src"
+                    UPLOAD_BUCKET: !Ref S3Bucket2
+            FunctionName: "lambda-convert-worker"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda-convert-worker-591ff0fd-fd34-45eb-a238-1b47ec20f094"
+                S3ObjectVersion: "n9FF4jtjfjMDqvQtjHEC2iiPyJ3EiTeQ"
+            MemorySize: 1536
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda-convert-worker-role-qdznmpan"
+            Runtime: "python3.11"
+            Timeout: 600
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:ffmpeg-amd64:1"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction2:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Instagram用のメディアファイルをS3におくためのPUT URLの生成およびGET URLの生成を行う。また、DynamoDBのテーブルを作成する"
+            Environment: 
+                Variables: 
+                    CLIENTS_TABLE: "convert_clients"
+                    JOBS_TABLE: !Ref DynamoDBTable
+                    KMS_KEY_ID: "alias/ig-token-key"
+                    DEFAULT_EXPIRES: "900"
+                    IN_BUCKET: !Ref S3Bucket2
+                    OUT_BUCKET: !Ref S3Bucket
+                    FB_TOKEN_PEPPER: "k3Q9m8r2SxZp1N0u"
+                    IN_PREFIX: "in/"
+                    REGION: !Ref AWS::Region
+            FunctionName: "lambda_presign"
+            Handler: "lambda_presign.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_presign-3249f4cb-addf-4009-92b0-3c34a026bf28"
+                S3ObjectVersion: "udphzDfVSLnyxOh66DZ9_RKF6H3VExJS"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_presign-role-fesg8sew"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction3:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Xに投稿するメディアをファイナライズする関数。即ファイナライズされたかどうかの判定も行う。ステーマシンからの呼び出し"
+            FunctionName: "lambda_x_finalize"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_x_finalize-d99bf797-a95a-4152-b7f5-159777cdb130"
+                S3ObjectVersion: "qc8phsN6eyu_XyQMvZPB5cTkzT7Kn3ID"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_finalize-role-sncv0l5h"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction4:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "SNS投稿のためS3にアップロードされたファイルを削除する関数。API Gateway経由モードとステートマシン制御モードがあり、前者はInsta用変換不要ファイルの削除、後者はInsta用変換ファイルの削除とX用ファイルの削除の機能を有する"
+            Environment: 
+                Variables: 
+                    IN_BUCKET: !Ref S3Bucket2
+                    OUT_BUCKET: !Ref S3Bucket
+            FunctionName: "lambda_cleanup"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_cleanup-8306ce19-815b-452d-a92c-fca71b0f3317"
+                S3ObjectVersion: "SMdQ7TWAxdWMU_P3.VP34_zZq63hHaXH"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_cleanup-role-pvgibg6l"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction5:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "convert_jobテーブルから指定されたsite_urlをもつ項目を絞り込んで返す。API  Gatewayから/jobs?site_url=で呼び出し"
+            FunctionName: !Sub "${LambdaFunction18}_status"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/${LambdaFunction18}_status-fdd00cff-10fd-41d4-a2c3-659a03cec0a3"
+                S3ObjectVersion: "rBZ54ZF0CIZYOcGPNVLGJBtCbxydEWY3"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/${LambdaFunction18}_status-role-atd5rkx7"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction6:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "Instagram用の動画が変換後の格納場所であるS3（${S3Bucket}）に格納されたときに発火する関数。この関数でステートマシンを起動"
+            Environment: 
+                Variables: 
+                    GET_EXPIRES: "3600"
+                    SF_IG_POST_ARN: !Ref StepFunctionsStateMachine
+                    UPLOAD_PREFIX: "converted/"
+            FunctionName: "lambda_convert_notifier"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_convert_notifier-fe12f3ac-faf9-46d9-8f69-83d2d620e40f"
+                S3ObjectVersion: "OfmsjHl012PwRTr8Tx_LXjIxIkgFJKKO"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_convert_notifier-role-de3o2da7"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction7:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "DynamoDBの${DynamoDBTable}内の項目を指定されたjob_idに基づき削除します。API Gatewayによる起動"
+            FunctionName: "lambda_delete_job"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_delete_job-55683a6e-2123-4112-be94-9b09fcdfc8cc"
+                S3ObjectVersion: "b1ZMyDywTkNiIeDyhG_.QEuuQPFzOMeI"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_delete_job-role-6g995amd"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction8:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Xの投稿メディア登録の状況を取得して、ステートマシンに返す。ステートマシンからの呼び出し"
+            FunctionName: "lambda_poll_media_status"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_poll_media_status-e98ab434-2e73-4902-b0bb-66f28ea65abb"
+                S3ObjectVersion: "hW_2gwyjlSRhxF0wvU8FTRXooHWoslqe"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_poll_media_status-role-3o2e1pe0"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction9:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "Instagram投稿用の動画がコンテナとしてSNSにアップされている状態を${DynamoDBTable}テーブルに記録する。ステートマシンからの呼び出し。ddb_helper関数をレイヤで持つ"
+            FunctionName: "lambda_check_status"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_check_status-44e7cf48-c157-494d-8c54-238a26629c25"
+                S3ObjectVersion: "a4m861WVXU1EBOQ7MmptaMN2km4R51gd"
+            MemorySize: 512
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_check_status-role-6ug98ls3"
+            Runtime: "python3.11"
+            Timeout: 30
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:ddb-helpers:2"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction10:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "lambda関数に${DynamoDBTable}テーブルへの書き込み機能を与えるヘルパー関数。レイヤのソースコード"
+            FunctionName: "ddb_helpers"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/ddb_helpers-7c2cf846-df81-494e-a53e-5feadc472c0b"
+                S3ObjectVersion: "jWsKO.NYDTbELlGJ6Pb5G0LCN5uT7p16"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/ddb_helpers-role-anfqait1"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction11:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Xの投稿用情報をconvert-jobに登録し、ステートマシンを起動する。"
+            Environment: 
+                Variables: 
+                    KMS_KEY_ID: "alias/ig-token-key"
+                    STATE_MACHINE_ARN: !Ref StepFunctionsStateMachine2
+            FunctionName: "lambda_start"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_start-2cf9fb12-138b-4453-899a-12c778b75254"
+                S3ObjectVersion: "pHhW1ClZkhMHeCG0AgOUytrGXL6bBWlz"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_start-role-o5k7gdn6"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction12:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Facebookアクセストークンを変換し、DynamoDBに記録する"
+            FunctionName: "lambda_token_register"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_token_register-33f9b529-0557-44b7-8dec-a03beb85eedc"
+                S3ObjectVersion: "vv2m6skLPy8ifqQOnV4iIsHsMueEEP6i"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_token_register-role-7bbwn2hy"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction13:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Xに投稿するメディアを登録する関数。ステーマシンからの呼び出し"
+            FunctionName: "lambda_x_append"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_x_append-e9517e4b-ce0d-4b0a-b7db-835f8acbcd9b"
+                S3ObjectVersion: "7ryj397ezrbyyGeFFfOUfnpwBaWu259t"
+            MemorySize: 512
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_append-role-ck86pedc"
+            Runtime: "python3.11"
+            Timeout: 120
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction14:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Instagram用の動画ファイルがアップされたのを確認して公開処理を行う。ステートマシンからの呼び出し"
+            FunctionName: "lambda_ig_publish"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_ig_publish-b0f416c4-4a8c-42dd-8d9e-44354e61401c"
+                S3ObjectVersion: "hYcvLVQ6UJLEorX5CK35WY.t5pSwEo62"
+            MemorySize: 512
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_ig_publish-role-2oij14o7"
+            Runtime: "python3.11"
+            Timeout: 30
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:ddb-helpers:2"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction15:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "X投稿のための最初のイニシャライズを行う。ここでSNS上のIDを取得する。ステートマシンからの呼び出し"
+            FunctionName: "lambda_x_initialize"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_x_initialize-ed246fad-56aa-4a3c-a93a-c06e3ba7455b"
+                S3ObjectVersion: "QnDcYdG6PT5ee16.mRc56Yhzl7NEUQtI"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_x_initialize-role-gq4o29ov"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction16:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "Instagram用の動画を読み取ってアップロードを開始し、その状態を${DynamoDBTable}に記録する。ステートマシンから起動される。"
+            FunctionName: "lambda_create_container"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_create_container-5d4a7a7a-3b42-4ad4-99e4-df7065864d24"
+                S3ObjectVersion: "OI7w5n2b4qlP4sh.wVhfISgTiyHFjurA"
+            MemorySize: 512
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_create_container-role-tyilgs9v"
+            Runtime: "python3.11"
+            Timeout: 30
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:ddb-helpers:2"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction17:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: "Xに投稿するメディアのアップロードが完了した（または、メディアがない）のを確認したステートマシンの指示により投稿を実行する。"
+            FunctionName: "lambda_post_x"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_post_x-cb3ed2a2-dcd7-433e-8892-5656228e7474"
+                S3ObjectVersion: "blhY0CGobKfw28OtcBTIdSVH3JkIZAjS"
+            MemorySize: 128
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_post_x-role-no48w33z"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:ddb-helpers:2"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaFunction18:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: !Sub "Instagram投稿のためのステートマシンのエントリポイント。${LambdaFunction2}で記録された${DynamoDBTable}から項目を読み込み"
+            Environment: 
+                Variables: 
+                    JOBS_TABLE: !Ref DynamoDBTable
+            FunctionName: "lambda_get_job"
+            Handler: "lambda_function.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                S3Bucket: "awslambda-ap-ne-1-tasks"
+                S3Key: !Sub "/snapshots/${AWS::AccountId}/lambda_get_job-4fd0dd9f-7bdc-4172-940a-3d22ea634408"
+                S3ObjectVersion: "xJhk9cbevjVA.x2suzNhwfR2aY3Tz2oY"
+            MemorySize: 160
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/lambda_get_job-role-v14vtw1c"
+            Runtime: "python3.11"
+            Timeout: 3
+            TracingConfig: 
+                Mode: "PassThrough"
+            EphemeralStorage: 
+                Size: 512
+
+    S3Bucket:
+        Type: "AWS::S3::Bucket"
+        Properties:
+            BucketName: "itmar-video-converted-bucket"
+            BucketEncryption: 
+                ServerSideEncryptionConfiguration: 
+                  - 
+                    ServerSideEncryptionByDefault: 
+                        SSEAlgorithm: "AES256"
+                    BucketKeyEnabled: false
+            NotificationConfiguration: 
+                LambdaConfigurations: 
+                  - 
+                    Event: "s3:ObjectCreated:*"
+                    Filter: 
+                        S3Key: 
+                            Rules: 
+                              - 
+                                Name: "Prefix"
+                                Value: "converted/"
+                              - 
+                                Name: "Suffix"
+                                Value: ".mp4"
+                    Function: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lambda_convert_notifier"
+            OwnershipControls: 
+                Rules: 
+                  - 
+                    ObjectOwnership: "BucketOwnerEnforced"
+            PublicAccessBlockConfiguration: 
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+
+    S3Bucket2:
+        Type: "AWS::S3::Bucket"
+        Properties:
+            BucketName: "itmar-video-upload-bucket"
+            BucketEncryption: 
+                ServerSideEncryptionConfiguration: 
+                  - 
+                    ServerSideEncryptionByDefault: 
+                        SSEAlgorithm: "AES256"
+                    BucketKeyEnabled: false
+            NotificationConfiguration: 
+                LambdaConfigurations: 
+                  - 
+                    Event: "s3:ObjectCreated:*"
+                    Filter: 
+                        S3Key: 
+                            Rules: 
+                              - 
+                                Name: "Prefix"
+                                Value: "in/"
+                    Function: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lambda-convert-worker"
+            OwnershipControls: 
+                Rules: 
+                  - 
+                    ObjectOwnership: "BucketOwnerEnforced"
+            PublicAccessBlockConfiguration: 
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+
+    DynamoDBTable:
+        Type: "AWS::DynamoDB::Table"
+        Properties:
+            AttributeDefinitions: 
+              - 
+                AttributeName: "job_id"
+                AttributeType: "S"
+              - 
+                AttributeName: "site_url"
+                AttributeType: "S"
+              - 
+                AttributeName: "updated_at"
+                AttributeType: "N"
+              - 
+                AttributeName: "wp_id"
+                AttributeType: "S"
+            BillingMode: "PAY_PER_REQUEST"
+            TableName: "convert_jobs"
+            KeySchema: 
+              - 
+                AttributeName: "job_id"
+                KeyType: "HASH"
+            GlobalSecondaryIndexes: 
+              - 
+                IndexName: "wp_id-updated_at-index"
+                KeySchema: 
+                  - 
+                    AttributeName: "wp_id"
+                    KeyType: "HASH"
+                  - 
+                    AttributeName: "updated_at"
+                    KeyType: "RANGE"
+                Projection: 
+                    ProjectionType: "ALL"
+                ProvisionedThroughput: 
+                    ReadCapacityUnits: 0
+                    WriteCapacityUnits: 0
+              - 
+                IndexName: "site_url-updated_at-index"
+                KeySchema: 
+                  - 
+                    AttributeName: "site_url"
+                    KeyType: "HASH"
+                  - 
+                    AttributeName: "updated_at"
+                    KeyType: "RANGE"
+                Projection: 
+                    ProjectionType: "ALL"
+                ProvisionedThroughput: 
+                    ReadCapacityUnits: 0
+                    WriteCapacityUnits: 0
+
+    ApiGatewayV2Api:
+        Type: "AWS::ApiGatewayV2::Api"
+        Properties:
+            ApiKeySelectionExpression: "$request.header.x-api-key"
+            ProtocolType: "HTTP"
+            RouteSelectionExpression: "$request.method $request.path"
+            DisableExecuteApiEndpoint: false
+
+    StepFunctionsStateMachine:
+        Type: "AWS::StepFunctions::StateMachine"
+        Properties:
+            StateMachineName: "IgStateMachine"
+            DefinitionString: !Sub |
+                {
+                  "Comment": "IG video post pipeline",
+                  "StartAt": "GetJob",
+                  "States": {
+                    "GetJob": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction18}",
+                      "ResultPath": "$.job",
+                      "Next": "CreateContainer"
+                    },
+                    "CreateContainer": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction16}",
+                      "ResultPath": "$.container",
+                      "Next": "ContainerChoice",
+                      "Retry": [
+                        {
+                          "ErrorEquals": [
+                            "States.ALL"
+                          ],
+                          "IntervalSeconds": 2,
+                          "MaxAttempts": 2,
+                          "BackoffRate": 2
+                        }
+                      ]
+                    },
+                    "ContainerChoice": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.container.ok",
+                          "BooleanEquals": true,
+                          "Next": "PickCreationId"
+                        }
+                      ],
+                      "Default": "ShowContainerError"
+                    },
+                    "ShowContainerError": {
+                      "Type": "Pass",
+                      "End": true
+                    },
+                    "PickCreationId": {
+                      "Type": "Pass",
+                      "Parameters": {
+                        "creation_id.$": "$.container.body.id"
+                      },
+                      "ResultPath": "$.cid",
+                      "Next": "WaitBeforeCheck"
+                    },
+                    "WaitBeforeCheck": {
+                      "Type": "Wait",
+                      "Seconds": 15,
+                      "Next": "CheckStatus"
+                    },
+                    "CheckStatus": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction9}",
+                      "ResultPath": "$.status",
+                      "Next": "StatusChoice",
+                      "Retry": [
+                        {
+                          "ErrorEquals": [
+                            "States.ALL"
+                          ],
+                          "IntervalSeconds": 3,
+                          "MaxAttempts": 3,
+                          "BackoffRate": 2
+                        }
+                      ],
+                      "Catch": [
+                        {
+                          "ErrorEquals": [
+                            "States.ALL"
+                          ],
+                          "ResultPath": "$.status_error",
+                          "Next": "Cleanup"
+                        }
+                      ]
+                    },
+                    "StatusChoice": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.status.code",
+                          "StringEquals": "FINISHED",
+                          "Next": "Publish"
+                        },
+                        {
+                          "Variable": "$.status.code",
+                          "StringEquals": "IN_PROGRESS",
+                          "Next": "WaitBeforeCheck"
+                        }
+                      ],
+                      "Default": "FailState"
+                    },
+                    "Publish": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction14}",
+                      "ResultPath": "$.publish",
+                      "Next": "Cleanup",
+                      "Retry": [
+                        {
+                          "ErrorEquals": [
+                            "States.ALL"
+                          ],
+                          "IntervalSeconds": 2,
+                          "MaxAttempts": 2,
+                          "BackoffRate": 2
+                        }
+                      ],
+                      "Catch": [
+                        {
+                          "ErrorEquals": [
+                            "States.ALL"
+                          ],
+                          "ResultPath": "$.publish_error",
+                          "Next": "Cleanup"
+                        }
+                      ]
+                    },
+                    "Cleanup": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction4}",
+                      "ResultPath": "$.cleanup",
+                      "Next": "AfterCleanup"
+                    },
+                    "AfterCleanup": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.failure",
+                          "IsPresent": true,
+                          "Next": "FailState"
+                        }
+                      ],
+                      "Default": "SuccessState"
+                    },
+                    "FailState": {
+                      "Type": "Fail",
+                      "Cause": "Creation failed or unknown status"
+                    },
+                    "SuccessState": {
+                      "Type": "Succeed"
+                    }
+                  }
+                }
+            RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/StepFunctions-IgStateMachine-role-3evfy5jyg"
+            StateMachineType: "STANDARD"
+            LoggingConfiguration: 
+                IncludeExecutionData: false
+                Level: "OFF"
+
+    StepFunctionsStateMachine2:
+        Type: "AWS::StepFunctions::StateMachine"
+        Properties:
+            StateMachineName: "xStateMachine"
+            DefinitionString: !Sub |
+                {
+                  "Comment": "Post to X workflow with per-media upload sequence",
+                  "StartAt": "GetJobX",
+                  "States": {
+                    "GetJobX": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction18}",
+                      "Next": "CheckMedia"
+                    },
+                    "CheckMedia": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.media_urls",
+                          "IsPresent": false,
+                          "Next": "PostToX"
+                        },
+                        {
+                          "Variable": "$.media_urls",
+                          "StringEquals": "[]",
+                          "Next": "PostToX"
+                        }
+                      ],
+                      "Default": "UploadEachMedia"
+                    },
+                    "UploadEachMedia": {
+                      "Type": "Map",
+                      "ItemsPath": "$.media_urls",
+                      "Parameters": {
+                        "job_id.$": "$.job_id",
+                        "access_token.$": "$.access_token",
+                        "text.$": "$.text",
+                        "caption.$": "$.caption",
+                        "ig_user_id.$": "$.ig_user_id",
+                        "site_url.$": "$.site_url",
+                        "media_url.$": "$$.Map.Item.Value"
+                      },
+                      "Iterator": {
+                        "StartAt": "InitializeMedia",
+                        "States": {
+                          "InitializeMedia": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction15}",
+                            "Next": "AppendMedia"
+                          },
+                          "AppendMedia": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction13}",
+                            "Next": "FinalizeMedia"
+                          },
+                          "FinalizeMedia": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction3}",
+                            "Next": "CheckIfProcessing"
+                          },
+                          "CheckIfProcessing": {
+                            "Type": "Choice",
+                            "Choices": [
+                              {
+                                "Variable": "$.status",
+                                "StringEquals": "succeeded",
+                                "Next": "DoneOneMedia"
+                              },
+                              {
+                                "Variable": "$.status",
+                                "StringEquals": "processing",
+                                "Next": "WaitBeforePoll"
+                              }
+                            ],
+                            "Default": "DoneOneMedia"
+                          },
+                          "WaitBeforePoll": {
+                            "Type": "Wait",
+                            "SecondsPath": "$.check_after",
+                            "Next": "PollMediaStatus"
+                          },
+                          "PollMediaStatus": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction8}",
+                            "Next": "PollCheck"
+                          },
+                          "PollCheck": {
+                            "Type": "Choice",
+                            "Choices": [
+                              {
+                                "Variable": "$.status",
+                                "StringEquals": "succeeded",
+                                "Next": "DoneOneMedia"
+                              },
+                              {
+                                "Variable": "$.status",
+                                "StringEquals": "in_progress",
+                                "Next": "WaitBeforePoll"
+                              }
+                            ],
+                            "Default": "DoneOneMedia"
+                          },
+                          "DoneOneMedia": {
+                            "Type": "Pass",
+                            "ResultPath": "$.media_result",
+                            "End": true
+                          }
+                        }
+                      },
+                      "ResultSelector": {
+                        "media_ids.$": "$[*].media_id"
+                      },
+                      "ResultPath": "$.media_results",
+                      "Next": "PreparePostToX"
+                    },
+                    "PreparePostToX": {
+                      "Type": "Pass",
+                      "Parameters": {
+                        "job_id.$": "$.job_id",
+                        "access_token.$": "$.access_token",
+                        "text.$": "$.text",
+                        "media_ids.$": "$.media_results.media_ids"
+                      },
+                      "Next": "PostToX"
+                    },
+                    "PostToX": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction17}",
+                      "Next": "Cleanup"
+                    },
+                    "Cleanup": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunction4}",
+                      "ResultPath": "$.cleanup",
+                      "Next": "AfterCleanup"
+                    },
+                    "AfterCleanup": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.failure",
+                          "IsPresent": true,
+                          "Next": "FailState"
+                        }
+                      ],
+                      "Default": "SuccessState"
+                    },
+                    "FailState": {
+                      "Type": "Fail",
+                      "Cause": "Creation failed or unknown status"
+                    },
+                    "SuccessState": {
+                      "Type": "Succeed"
+                    }
+                  }
+                }
+            RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/StepFunctions-xStateMachine-role-ryxkhm8ed"
+            StateMachineType: "STANDARD"
+            LoggingConfiguration: 
+                IncludeExecutionData: false
+                Level: "OFF"
+
+    KMSKey:
+        Type: "AWS::KMS::Key"
+        Properties:
+            Enabled: true
+            Description: ""
+            KeyUsage: "ENCRYPT_DECRYPT"
+            KeyPolicy: !Sub |
+                {
+                  "Version" : "2012-10-17",
+                  "Id" : "key-consolepolicy-3",
+                  "Statement" : [ {
+                    "Sid" : "Enable IAM User Permissions",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : "arn:aws:iam::${AWS::AccountId}:root"
+                    },
+                    "Action" : "kms:*",
+                    "Resource" : "*"
+                  }, {
+                    "Sid" : "Allow access for Key Administrators",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : [ "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange", "arn:aws:iam::${AWS::AccountId}:user/itmaroon" ]
+                    },
+                    "Action" : [ "kms:Create*", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*", "kms:Revoke*", "kms:Disable*", "kms:Get*", "kms:Delete*", "kms:TagResource", "kms:UntagResource", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion", "kms:RotateKeyOnDemand" ],
+                    "Resource" : "*"
+                  }, {
+                    "Sid" : "Allow use of the key",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : [ "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange", "arn:aws:iam::${AWS::AccountId}:user/itmaroon" ]
+                    },
+                    "Action" : [ "kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey" ],
+                    "Resource" : "*"
+                  }, {
+                    "Sid" : "Allow attachment of persistent resources",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : [ "arn:aws:iam::${AWS::AccountId}:user/mpeg_xchange", "arn:aws:iam::${AWS::AccountId}:user/itmaroon" ]
+                    },
+                    "Action" : [ "kms:CreateGrant", "kms:ListGrants", "kms:RevokeGrant" ],
+                    "Resource" : "*",
+                    "Condition" : {
+                      "Bool" : {
+                        "kms:GrantIsForAWSResource" : "true"
+                      }
+                    }
+                  }, {
+                    "Sid" : "Allow Use of the Key from Lambda presign role",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : "arn:aws:iam::${AWS::AccountId}:role/service-role/${LambdaFunction2}-role-fesg8sew"
+                    },
+                    "Action" : "kms:Encrypt",
+                    "Resource" : "*"
+                  }, {
+                    "Sid" : "AllowDecryptFromLambdaGetJob",
+                    "Effect" : "Allow",
+                    "Principal" : {
+                      "AWS" : "arn:aws:iam::${AWS::AccountId}:role/service-role/${LambdaFunction18}-role-v14vtw1c"
+                    },
+                    "Action" : [ "kms:Decrypt", "kms:DescribeKey" ],
+                    "Resource" : "*"
+                  } ]
+                }
+            KeySpec: "SYMMETRIC_DEFAULT"
+            MultiRegion: false
+

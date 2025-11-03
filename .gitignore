@@ -1,0 +1,51 @@
+# === AWS SAM build artifacts ===
+.aws-sam/
+
+# Packaged templates (environment-specific S3 URLs)
+packaged.yaml
+packaged-*.yaml
+
+# Former2/SAM export artifacts (keep JSON defs, ignore ZIPs)
+export-ARTIFACTS/lambda/*.zip
+export-ARTIFACTS/layers/*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Node (for any JS tooling or Lambda layers using npm)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Misc
+*.log

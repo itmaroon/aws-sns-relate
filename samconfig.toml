@@ -1,0 +1,16 @@
+version = 0.1
+
+[default.deploy]
+[default.deploy.parameters]
+template_file = "template-use1.yaml"
+stack_name = "sns-relate-us"
+region = "us-east-1"
+
+resolve_s3 = true
+
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+
+parameter_overrides = "EnvName=prod InBucketName=in-sns-relate-use1-071360906030-dev OutBucketName=out-sns-relate-use1-071360906030-dev"
+
+confirm_changeset = false
+fail_on_empty_changeset = false

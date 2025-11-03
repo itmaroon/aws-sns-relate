@@ -1,0 +1,146 @@
+{
+    "Comment": "IG video post pipeline",
+    "StartAt": "GetJob",
+    "States": {
+        "GetJob": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_GET_JOB_ARN}",
+            "ResultPath": "$.job",
+            "Next": "CreateContainer"
+        },
+        "CreateContainer": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_CREATE_CONTAINER_ARN}",
+            "ResultPath": "$.container",
+            "Next": "ContainerChoice",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2
+                }
+            ]
+        },
+        "ContainerChoice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.container.ok",
+                    "BooleanEquals": true,
+                    "Next": "PickCreationId"
+                }
+            ],
+            "Default": "ShowContainerError"
+        },
+        "ShowContainerError": {
+            "Type": "Pass",
+            "End": true
+        },
+        "PickCreationId": {
+            "Type": "Pass",
+            "Parameters": {
+                "creation_id.$": "$.container.body.id"
+            },
+            "ResultPath": "$.cid",
+            "Next": "WaitBeforeCheck"
+        },
+        "WaitBeforeCheck": {
+            "Type": "Wait",
+            "Seconds": 15,
+            "Next": "CheckStatus"
+        },
+        "CheckStatus": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_CHECK_STATUS_ARN}",
+            "ResultPath": "$.status",
+            "Next": "StatusChoice",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "IntervalSeconds": 3,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "ResultPath": "$.status_error",
+                    "Next": "Cleanup"
+                }
+            ]
+        },
+        "StatusChoice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.status.code",
+                    "StringEquals": "FINISHED",
+                    "Next": "Publish"
+                },
+                {
+                    "Variable": "$.status.code",
+                    "StringEquals": "IN_PROGRESS",
+                    "Next": "WaitBeforeCheck"
+                }
+            ],
+            "Default": "FailState"
+        },
+        "Publish": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_IG_PUBLISH_ARN}",
+            "ResultPath": "$.publish",
+            "Next": "Cleanup",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "ResultPath": "$.publish_error",
+                    "Next": "Cleanup"
+                }
+            ]
+        },
+        "Cleanup": {
+            "Type": "Task",
+            "Resource": "${LAMBDA_CLEANUP_ARN}",
+            "ResultPath": "$.cleanup",
+            "Next": "AfterCleanup"
+        },
+        "AfterCleanup": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.failure",
+                    "IsPresent": true,
+                    "Next": "FailState"
+                }
+            ],
+            "Default": "SuccessState"
+        },
+        "FailState": {
+            "Type": "Fail",
+            "Cause": "Creation failed or unknown status"
+        },
+        "SuccessState": {
+            "Type": "Succeed"
+        }
+    }
+}
